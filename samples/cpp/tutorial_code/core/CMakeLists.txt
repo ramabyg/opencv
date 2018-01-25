@@ -24,9 +24,9 @@ if(CMAKE_VERSION VERSION_LESS "2.8.11")
 endif()
 
 # Declare the executable target built from your sources
-add_executable(how_to_scan_images ../how_to_scan_images/how_to_scan_images.cpp)
+add_executable(how_to_scan_images ./how_to_scan_images/how_to_scan_images.cpp)
 
-add_executable(file_input_output ../file_input_output/file_input_output.cpp)
+add_executable(file_input_output ./file_input_output/file_input_output.cpp)
 # Link your application with OpenCV libraries
 target_link_libraries(how_to_scan_images ${OpenCV_LIBS})
 target_link_libraries(file_input_output ${OpenCV_LIBS})
