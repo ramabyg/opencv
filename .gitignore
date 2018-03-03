@@ -22,3 +22,7 @@ bin/
 *.log
 *.tlog
 build
+GPATH
+GRTAGS
+GSYMS
+GTAGS
