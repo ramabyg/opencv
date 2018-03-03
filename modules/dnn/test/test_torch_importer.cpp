@@ -39,14 +39,12 @@
 //
 //M*/
 
-#ifdef ENABLE_TORCH_IMPORTER
-
 #include "test_precomp.hpp"
 #include "npy_blob.hpp"
 #include <opencv2/dnn/shape_utils.hpp>
 #include <opencv2/ts/ocl_test.hpp>
 
-namespace cvtest
+namespace opencv_test
 {
 
 using namespace std;
@@ -167,9 +165,19 @@ TEST(Torch_Importer, run_deconv)
     runTorchNet("net_deconv");
 }
 
+OCL_TEST(Torch_Importer, run_deconv)
+{
+    runTorchNet("net_deconv", DNN_TARGET_OPENCL);
+}
+
 TEST(Torch_Importer, run_batch_norm)
 {
     runTorchNet("net_batch_norm", DNN_TARGET_CPU, "", false, true);
+}
+
+OCL_TEST(Torch_Importer, run_batch_norm)
+{
+    runTorchNet("net_batch_norm", DNN_TARGET_OPENCL, "", false, true);
 }
 
 TEST(Torch_Importer, net_prelu)
@@ -227,11 +235,26 @@ TEST(Torch_Importer, net_normalize)
     runTorchNet("net_normalize", DNN_TARGET_CPU, "", false, true);
 }
 
+OCL_TEST(Torch_Importer, net_normalize)
+{
+    runTorchNet("net_normalize", DNN_TARGET_OPENCL, "", false, true);
+}
+
 TEST(Torch_Importer, net_padding)
 {
     runTorchNet("net_padding", DNN_TARGET_CPU, "", false, true);
     runTorchNet("net_spatial_zero_padding", DNN_TARGET_CPU, "", false, true);
     runTorchNet("net_spatial_reflection_padding", DNN_TARGET_CPU, "", false, true);
+}
+
+TEST(Torch_Importer, net_non_spatial)
+{
+    runTorchNet("net_non_spatial", DNN_TARGET_CPU, "", false, true);
+}
+
+OCL_TEST(Torch_Importer, net_non_spatial)
+{
+    runTorchNet("net_non_spatial", DNN_TARGET_OPENCL, "", false, true);
 }
 
 TEST(Torch_Importer, ENet_accuracy)
@@ -311,9 +334,8 @@ OCL_TEST(Torch_Importer, ENet_accuracy)
     Net net;
     {
         const string model = findDataFile("dnn/Enet-model-best.net", false);
-        Ptr<Importer> importer = createTorchImporter(model, true);
-        ASSERT_TRUE(importer != NULL);
-        importer->populateNet(net);
+        net = readNetFromTorch(model, true);
+        ASSERT_TRUE(!net.empty());
     }
 
     net.setPreferableBackend(DNN_BACKEND_DEFAULT);
@@ -416,5 +438,3 @@ OCL_TEST(Torch_Importer, FastNeuralStyle_accuracy)
 }
 
 }
-
-#endif
