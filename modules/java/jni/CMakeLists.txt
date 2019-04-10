@@ -13,6 +13,12 @@ foreach(m ${OPENCV_MODULES_BUILD})
   endif()
 endforeach()
 
+if(ANDROID)
+  ocv_update(JNI_OUTPUT_PATH  "${OpenCV_BINARY_DIR}/jni/${ANDROID_NDK_ABI_NAME}")
+else()
+  ocv_update(JNI_OUTPUT_PATH  "${LIBRARY_OUTPUT_PATH}")
+endif()
+
 set(__type MODULE)
 if(BUILD_FAT_JAVA_LIB)
   set(__type SHARED) # samples link to libopencv_java
@@ -46,7 +52,7 @@ if(BUILD_FAT_JAVA_LIB)
     foreach(_dep ${__deps})
       ocv_target_link_libraries(${the_module} LINK_PRIVATE -Wl,-force_load "${_dep}")
     endforeach()
-  elseif(((CMAKE_COMPILER_IS_GNUCXX OR UNIX) OR (OPENCV_FORCE_FAT_JAVA_LIB_LD_RULES)) AND (NOT OPENCV_SKIP_FAT_JAVA_LIB_LD_RULES))
+  elseif(((CV_GCC OR CV_CLANG OR UNIX) OR (OPENCV_FORCE_FAT_JAVA_LIB_LD_RULES)) AND (NOT OPENCV_SKIP_FAT_JAVA_LIB_LD_RULES))
     ocv_target_link_libraries(${the_module} LINK_PRIVATE -Wl,-whole-archive ${__deps} -Wl,-no-whole-archive)
   else()
     ocv_target_link_libraries(${the_module} LINK_PRIVATE ${__deps})
@@ -60,7 +66,7 @@ endif()
 set_target_properties(${the_module} PROPERTIES
     OUTPUT_NAME "${the_module}${OPENCV_JAVA_LIB_NAME_SUFFIX}"
     ARCHIVE_OUTPUT_DIRECTORY ${LIBRARY_OUTPUT_PATH}
-    LIBRARY_OUTPUT_DIRECTORY ${LIBRARY_OUTPUT_PATH}
+    LIBRARY_OUTPUT_DIRECTORY ${JNI_OUTPUT_PATH}
     RUNTIME_OUTPUT_DIRECTORY ${EXECUTABLE_OUTPUT_PATH}
     DEFINE_SYMBOL CVAPI_EXPORTS
     )

@@ -47,6 +47,7 @@
 
 #if defined(HAVE_OPENCL_STATIC)
 #if defined __APPLE__
+#define CL_SILENCE_DEPRECATION
 #include <OpenCL/cl.h>
 #else
 #include <CL/cl.h>
@@ -316,7 +317,7 @@ static void* opencl_check_fn(int ID)
 #endif
     else
     {
-        CV_ErrorNoReturn(cv::Error::StsBadArg, "Invalid function ID");
+        CV_Error(cv::Error::StsBadArg, "Invalid function ID");
     }
     void* func = CV_CL_GET_PROC_ADDRESS(e->fnName);
     if (!func)
