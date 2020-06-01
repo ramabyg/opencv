@@ -13,9 +13,18 @@ if(NOT TARGET ade)
   return()
 endif()
 
+if(INF_ENGINE_TARGET)
+  ocv_option(OPENCV_GAPI_INF_ENGINE "Build GraphAPI module with Inference Engine support" ON)
+endif()
+
 set(the_description "OpenCV G-API Core Module")
 
-ocv_add_module(gapi opencv_imgproc)
+ocv_add_module(gapi
+    REQUIRED
+      opencv_imgproc
+    OPTIONAL
+      opencv_video
+)
 
 if(MSVC)
   # Disable obsollete warning C4503 popping up on MSVC <<2017
@@ -44,6 +53,7 @@ set(gapi_srcs
     src/api/gorigin.cpp
     src/api/gmat.cpp
     src/api/garray.cpp
+    src/api/gopaque.cpp
     src/api/gscalar.cpp
     src/api/gkernel.cpp
     src/api/gbackend.cpp
@@ -54,6 +64,7 @@ set(gapi_srcs
     src/api/operators.cpp
     src/api/kernels_core.cpp
     src/api/kernels_imgproc.cpp
+    src/api/kernels_video.cpp
     src/api/render.cpp
     src/api/render_ocv.cpp
     src/api/ginfer.cpp
@@ -86,6 +97,7 @@ set(gapi_srcs
     src/backends/cpu/gcpubackend.cpp
     src/backends/cpu/gcpukernel.cpp
     src/backends/cpu/gcpuimgproc.cpp
+    src/backends/cpu/gcpuvideo.cpp
     src/backends/cpu/gcpucore.cpp
 
     # Fluid Backend (also built-in, FIXME:move away)
@@ -131,12 +143,19 @@ ocv_module_include_directories("${CMAKE_CURRENT_LIST_DIR}/src")
 
 ocv_create_module()
 
-ocv_target_link_libraries(${the_module} PRIVATE ade ${INF_ENGINE_TARGET})
+ocv_target_link_libraries(${the_module} PRIVATE ade)
+if(OPENCV_GAPI_INF_ENGINE)
+  ocv_target_link_libraries(${the_module} PRIVATE ${INF_ENGINE_TARGET})
+endif()
 if(HAVE_TBB)
   ocv_target_link_libraries(${the_module} PRIVATE tbb)
 endif()
 
-ocv_add_accuracy_tests(${INF_ENGINE_TARGET})
+set(__test_extra_deps "")
+if(OPENCV_GAPI_INF_ENGINE)
+  list(APPEND __test_extra_deps ${INF_ENGINE_TARGET})
+endif()
+ocv_add_accuracy_tests(${__test_extra_deps})
 # FIXME: test binary is linked with ADE directly since ADE symbols
 # are not exported from libopencv_gapi.so in any form - thus
 # there're two copies of ADE code in memory when tests run (!)
@@ -147,17 +166,21 @@ if(TARGET opencv_test_gapi)
 endif()
 
 if(HAVE_FREETYPE)
-  ocv_target_compile_definitions(opencv_gapi      PRIVATE -DHAVE_FREETYPE)
-  ocv_target_compile_definitions(opencv_test_gapi PRIVATE -DHAVE_FREETYPE)
-  ocv_target_link_libraries(opencv_gapi PRIVATE ${FREETYPE_LIBRARIES})
-  ocv_target_include_directories(opencv_gapi PRIVATE ${FREETYPE_INCLUDE_DIRS})
+  ocv_target_compile_definitions(${the_module} PRIVATE -DHAVE_FREETYPE)
+  if(TARGET opencv_test_gapi)
+    ocv_target_compile_definitions(opencv_test_gapi PRIVATE -DHAVE_FREETYPE)
+  endif()
+  ocv_target_link_libraries(${the_module} PRIVATE ${FREETYPE_LIBRARIES})
+  ocv_target_include_directories(${the_module} PRIVATE ${FREETYPE_INCLUDE_DIRS})
 endif()
 
 if(HAVE_PLAIDML)
-  ocv_target_compile_definitions(opencv_gapi      PRIVATE -DHAVE_PLAIDML)
-  ocv_target_compile_definitions(opencv_test_gapi PRIVATE -DHAVE_PLAIDML)
-  ocv_target_link_libraries(opencv_gapi PRIVATE ${PLAIDML_LIBRARIES})
-  ocv_target_include_directories(opencv_gapi SYSTEM PRIVATE ${PLAIDML_INCLUDE_DIRS})
+  ocv_target_compile_definitions(${the_module} PRIVATE -DHAVE_PLAIDML)
+  if(TARGET opencv_test_gapi)
+    ocv_target_compile_definitions(opencv_test_gapi PRIVATE -DHAVE_PLAIDML)
+  endif()
+  ocv_target_link_libraries(${the_module} PRIVATE ${PLAIDML_LIBRARIES})
+  ocv_target_include_directories(${the_module} SYSTEM PRIVATE ${PLAIDML_INCLUDE_DIRS})
 endif()
 
 ocv_add_perf_tests()

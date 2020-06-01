@@ -31,9 +31,11 @@
 
 #include <opencv2/gapi/gcommon.hpp>
 #include <opencv2/gapi/garray.hpp>
+#include <opencv2/gapi/gopaque.hpp>
 #include <opencv2/gapi/util/any.hpp>
 #include <opencv2/gapi/gtype_traits.hpp>
 #include <opencv2/gapi/infer.hpp>
+#include <opencv2/gapi/own/convert.hpp>
 
 #include "compiler/gobjref.hpp"
 #include "compiler/gmodel.hpp"
@@ -210,6 +212,7 @@ struct IEUnit {
     cv::gimpl::ie::IECompiled compile() const {
         auto this_plugin = IE::PluginDispatcher().getPluginByDevice(params.device_id);
 
+#if INF_ENGINE_RELEASE < 2020000000  // <= 2019.R3
         // Load extensions (taken from DNN module)
         if (params.device_id == "CPU" || params.device_id == "FPGA")
         {
@@ -246,10 +249,11 @@ struct IEUnit {
                 }
                 catch(...)
                 {
-                    CV_LOG_WARNING(NULL, "Failed to load IE extension " << extlib);
+                    CV_LOG_INFO(NULL, "Failed to load IE extension: " << extlib);
                 }
             }
         }
+#endif
 
         auto this_network = this_plugin.LoadNetwork(net, {}); // FIXME: 2nd parameter to be
                                                               // configurable via the API
@@ -284,11 +288,11 @@ struct IECallContext
     const T& inArg(std::size_t input) { return args.at(input).get<T>(); }
 
     // Syntax sugar
-    const cv::gapi::own::Mat&   inMat(std::size_t input) {
-        return inArg<cv::gapi::own::Mat>(input);
+    const cv::Mat&   inMat(std::size_t input) {
+        return inArg<cv::Mat>(input);
     }
-    cv::gapi::own::Mat&         outMatR(std::size_t output) {
-        return *cv::util::get<cv::gapi::own::Mat*>(results.at(output));
+    cv::Mat&         outMatR(std::size_t output) {
+        return *cv::util::get<cv::Mat*>(results.at(output));
     }
 
     template<typename T> std::vector<T>& outVecR(std::size_t output) { // FIXME: the same issue
@@ -390,11 +394,15 @@ cv::GArg cv::gimpl::ie::GIEExecutable::packArg(const cv::GArg &arg) {
     const cv::gimpl::RcDesc &ref = arg.get<cv::gimpl::RcDesc>();
     switch (ref.shape)
     {
-    case GShape::GMAT:    return GArg(m_res.slot<cv::gapi::own::Mat>()[ref.id]);
+    case GShape::GMAT:    return GArg(m_res.slot<cv::Mat>()[ref.id]);
 
     // Note: .at() is intentional for GArray as object MUST be already there
     //   (and constructed by either bindIn/Out or resetInternal)
     case GShape::GARRAY:  return GArg(m_res.slot<cv::detail::VectorRef>().at(ref.id));
+
+    // Note: .at() is intentional for GOpaque as object MUST be already there
+    //   (and constructed by either bindIn/Out or resetInternal)
+    case GShape::GOPAQUE:  return GArg(m_res.slot<cv::detail::OpaqueRef>().at(ref.id));
 
     default:
         util::throw_error(std::logic_error("Unsupported GShape type"));
@@ -509,7 +517,7 @@ struct Infer: public cv::detail::KernelTag {
             // and redirect our data producers to this memory
             // (A memory dialog comes to the picture again)
 
-            const cv::Mat this_mat = to_ocv(ctx.inMat(i));
+            const cv::Mat this_mat = ctx.inMat(i);
             // FIXME: By default here we trait our inputs as images.
             // May be we need to make some more intelligence here about it
             IE::Blob::Ptr this_blob = wrapIE(this_mat, cv::gapi::ie::TraitAs::IMAGE);
@@ -523,7 +531,7 @@ struct Infer: public cv::detail::KernelTag {
             // Not a <very> big deal for classifiers and detectors,
             // but may be critical to segmentation.
 
-            cv::gapi::own::Mat& out_mat = ctx.outMatR(i);
+            cv::Mat& out_mat = ctx.outMatR(i);
             IE::Blob::Ptr this_blob = iec.this_request.GetBlob(uu.params.output_names[i]);
             copyFromIE(this_blob, out_mat);
         }
@@ -581,7 +589,7 @@ struct InferList: public cv::detail::KernelTag {
         GAPI_Assert(uu.params.num_in == 1); // roi list is not counted in net's inputs
 
         const auto& in_roi_vec = ctx.inArg<cv::detail::VectorRef>(0u).rref<cv::Rect>();
-        const cv::Mat this_mat = to_ocv(ctx.inMat(1u));
+        const cv::Mat this_mat = ctx.inMat(1u);
         // Since we do a ROI list inference, always assume our input buffer is image
         IE::Blob::Ptr this_blob = wrapIE(this_mat, cv::gapi::ie::TraitAs::IMAGE);
 

@@ -57,6 +57,9 @@
 #include "opencl_kernels_dnn.hpp"
 using namespace cv::dnn::ocl4dnn;
 #endif
+#ifdef HAVE_TENGINE
+#include "../tengine4dnn/include/tengine_graph_convolution.hpp"
+#endif
 
 #ifdef HAVE_CUDA
 #include "../cuda4dnn/primitives/convolution.hpp"
@@ -164,6 +167,10 @@ public:
 
     virtual bool tryFuse(Ptr<Layer>& top) CV_OVERRIDE
     {
+        Ptr<BlankLayer> blank_layer = top.dynamicCast<BlankLayer>();
+        if (blank_layer)
+            return true;
+
         Mat w, b;
         top->getScaleShift(w, b);
         if (!w.empty() || !b.empty())
@@ -622,7 +629,7 @@ public:
         return Ptr<BackendNode>();
     }
 
-#ifdef HAVE_INF_ENGINE
+#ifdef HAVE_DNN_IE_NN_BUILDER_2019
     virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> > &inputs) CV_OVERRIDE
     {
         InferenceEngine::DataPtr input = infEngineDataNode(inputs[0]);
@@ -683,7 +690,7 @@ public:
 
         return Ptr<BackendNode>(new InfEngineBackendNode(l));
     }
-#endif  // HAVE_INF_ENGINE
+#endif  // HAVE_DNN_IE_NN_BUILDER_2019
 
 #ifdef HAVE_DNN_NGRAPH
     virtual Ptr<BackendNode> initNgraph(const std::vector<Ptr<BackendWrapper> > &inputs,
@@ -1382,6 +1389,13 @@ public:
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
+#if CV_SSE3
+        uint32_t ftzMode = _MM_GET_FLUSH_ZERO_MODE();
+        uint32_t dazMode = _MM_GET_DENORMALS_ZERO_MODE();
+        _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+        _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+#endif
+
         CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
@@ -1427,10 +1441,47 @@ public:
             }
         }
 
-        int nstripes = std::max(getNumThreads(), 1);
+#ifdef HAVE_TENGINE
+        int inch = inputs[0].size[1]; 		// inch
+        int in_h = inputs[0].size[2]; 		// in_h
+        int in_w = inputs[0].size[3]; 		// in_w
 
-        ParallelConv::run(inputs[0], outputs[0], weightsMat, biasvec, reluslope,
-                          kernel_size, strides, pads_begin, pads_end, dilations, activ.get(), ngroups, nstripes);
+        int out_b = outputs[0].size[0];     // out batch size
+        int outch = outputs[0].size[1]; 	// outch
+        int out_h = outputs[0].size[2]; 	// out_h
+        int out_w = outputs[0].size[3]; 	// out_w
+
+        float *input_  = inputs[0].ptr<float>();
+        float *output_ = outputs[0].ptr<float>();
+        float *kernel_ = weightsMat.ptr<float>();
+        float *teg_bias = &biasvec[0];
+
+        bool tengine_ret = tengine_forward(input_, inch, ngroups, in_h, in_w,
+                                    output_, out_b, outch, out_h, out_w,
+                                    kernel_, kernel_size.size(), kernel.height, kernel.width,
+                                    teg_bias, stride.height, stride.width,
+                                    pad.height,  pad.width, dilation.height, dilation.width,
+                                    weightsMat.step1(), padMode);
+        /* activation */
+        if((true == tengine_ret) && activ )
+        {
+            int out_cstep = out_h * out_w;	    // out_cstep
+
+            ActivationLayer* activ_ = activ.get();
+            activ_->forwardSlice(output_, output_, out_cstep, out_cstep, 0, outch);
+        }
+        if(false == tengine_ret)
+#endif
+        {
+            int nstripes = std::max(getNumThreads(), 1);
+
+            ParallelConv::run(inputs[0], outputs[0], weightsMat, biasvec, reluslope,
+                            kernel_size, strides, pads_begin, pads_end, dilations, activ.get(), ngroups, nstripes);
+        }
+#if CV_SSE3
+        _MM_SET_FLUSH_ZERO_MODE(ftzMode);
+        _MM_SET_DENORMALS_ZERO_MODE(dazMode);
+#endif
     }
 
 #ifdef HAVE_CUDA
@@ -1555,22 +1606,10 @@ public:
         const int group = numOutput / outGroupCn;
 
         if (backendId == DNN_BACKEND_INFERENCE_ENGINE_NGRAPH) {
-            if (padMode.empty()) {
-                for (int i = 0; i < adjust_pads.size(); i++) {
-                    if (pads_end[i] < adjust_pads[i])
-                    return false;
-                }
-            } else if (padMode == "SAME") {
-                for (int i = 0; i < adjust_pads.size(); i++) {
-                    if (kernel_size[i] < pads_begin[i] + 1 + adjust_pads[i])
-                        return false;
-                }
-            } else if (padMode == "VALID")
-                return false;
-
             return group == 1;
         }
 
+#ifdef HAVE_DNN_IE_NN_BUILDER_2019
         if (backendId == DNN_BACKEND_INFERENCE_ENGINE_NN_BUILDER_2019)
         {
             if (kernel_size.size() == 3 && preferableTarget != DNN_TARGET_CPU) {
@@ -1614,10 +1653,12 @@ public:
                 return std::accumulate(dilations.begin(), dilations.end(), 1, std::multiplies<size_t>()) == 1;
             return true;
         }
-        else
+#endif  // HAVE_DNN_IE_NN_BUILDER_2019
 #endif  // HAVE_INF_ENGINE
+        {
             return backendId == DNN_BACKEND_CUDA ||
             (kernel_size.size() == 2 && (backendId == DNN_BACKEND_OPENCV || backendId == DNN_BACKEND_HALIDE));
+        }
     }
 
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
@@ -2257,7 +2298,7 @@ public:
         return Ptr<BackendNode>();
     }
 
-#ifdef HAVE_INF_ENGINE
+#ifdef HAVE_DNN_IE_NN_BUILDER_2019
     virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> > &) CV_OVERRIDE
     {
         InferenceEngine::Layout layout = blobs[0].dims == 5? InferenceEngine::Layout::NCDHW :
@@ -2312,7 +2353,7 @@ public:
             addConstantData("biases", wrapToInfEngineBlob(biasesMat, {(size_t)numOutput}, InferenceEngine::Layout::C), l);
         return Ptr<BackendNode>(new InfEngineBackendNode(l));
     }
-#endif  // HAVE_INF_ENGINE
+#endif  // HAVE_DNN_IE_NN_BUILDER_2019
 
 
 #ifdef HAVE_DNN_NGRAPH
@@ -2334,20 +2375,16 @@ public:
             ieWeights = std::make_shared<ngraph::op::Constant>(ngraph::element::f32, kernel_shape, newWeights.data);
         }
         std::vector<size_t> paddings_end;
-        if (padMode.empty())
-        {
-            for (int i = 0; i < pads_end.size(); i++) {
-                paddings_end.push_back(pads_end[i] - adjust_pads[i]);
-            }
-        }
-        else if (padMode == "SAME")
+        if (padMode == "SAME")
         {
             for (int i = 0; i < pads_begin.size(); i++) {
                 paddings_end.push_back(kernel_size[i] - pads_begin[i] - 1 - adjust_pads[i]);
             }
+            adjust_pads = std::vector<size_t>(pads_begin.size(), 0);
         } else {
             paddings_end = pads_end;
         }
+        ngraph::op::PadType pad_type = padMode == "VALID" ? ngraph::op::PadType::VALID : ngraph::op::PadType::EXPLICIT;
 
         auto deconv = std::make_shared<ngraph::op::v1::ConvolutionBackpropData>(
                           ieInpNode,
@@ -2355,7 +2392,10 @@ public:
                           ngraph::Strides(strides),
                           ngraph::CoordinateDiff(std::vector<std::ptrdiff_t>(pads_begin.begin(), pads_begin.end())),
                           ngraph::CoordinateDiff(std::vector<std::ptrdiff_t>(paddings_end.begin(), paddings_end.end())),
-                          ngraph::Strides(dilations));
+                          ngraph::Strides(dilations),
+                          pad_type,
+                          ngraph::CoordinateDiff(std::vector<std::ptrdiff_t>(adjust_pads.begin(), adjust_pads.end())));
+
         if (hasBias() || fusedBias)
         {
             std::vector<size_t> shape(deconv->get_shape().size(), 1);

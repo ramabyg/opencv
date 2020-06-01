@@ -27,3 +27,4 @@ GRTAGS
 GSYMS
 GTAGS
 node_modules
+CMakeSettings.json

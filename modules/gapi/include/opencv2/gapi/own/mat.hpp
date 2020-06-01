@@ -17,6 +17,7 @@
 #include <memory>                   //std::shared_ptr
 #include <cstring>                  //std::memcpy
 #include <numeric>                  //std::accumulate
+#include <vector>
 #include <opencv2/gapi/util/throw.hpp>
 
 namespace cv { namespace gapi { namespace own {
@@ -230,6 +231,7 @@ namespace cv { namespace gapi { namespace own {
         */
         void create(Size _size, int _type)
         {
+            GAPI_Assert(_size.height >= 0 && _size.width >= 0);
             if (_size != Size{cols, rows} )
             {
                 Mat tmp{_size.height, _size.width, _type, nullptr};
@@ -296,10 +298,9 @@ namespace cv { namespace gapi { namespace own {
          */
         size_t total() const
         {
-            return static_cast<std::size_t>
-                (dims.empty()
-                 ? (rows * cols)
-                 : std::accumulate(dims.begin(), dims.end(), 1, std::multiplies<int>()));
+            return dims.empty()
+                 ? (static_cast<std::size_t>(rows) * cols)
+                 : std::accumulate(dims.begin(), dims.end(), static_cast<std::size_t>(1), std::multiplies<size_t>());
         }
 
         /** @overload
